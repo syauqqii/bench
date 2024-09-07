@@ -1,208 +1,447 @@
-trap cleanup_script INT QUIT TERM
+trap _exit INT QUIT TERM
 
-print_red() { printf '\033[0;31;31m%b\033[0m' "$1" }
-print_green() { printf '\033[0;31;32m%b\033[0m' "$1" }
-print_yellow() { printf '\033[0;31;33m%b\033[0m' "$1" }
-print_cyan() { printf '\033[0;31;36m%b\033[0m' "$1" }
+_red() { printf '\033[0;31;31m%b\033[0m' "$1"; }
+_green() { printf '\033[0;31;32m%b\033[0m' "$1"; }
+_yellow() { printf '\033[0;31;33m%b\033[0m' "$1"; }
+_blue() { printf '\033[0;31;36m%b\033[0m' "$1"; }
 
-check_command() {
-    local command_name="$1"
+_exists() {
+    local cmd="$1"
+
     if eval type type >/dev/null 2>&1; then
-        eval type "$command_name" >/dev/null 2>&1
+        eval type "$cmd" >/dev/null 2>&1
     elif command >/dev/null 2>&1; then
-        command -v "$command_name" >/dev/null 2>&1
+        command -v "$cmd" >/dev/null 2>&1
     else
-        which "$command_name" >/dev/null 2>&1
+        which "$cmd" >/dev/null 2>&1
     fi
-    return $?
+
+    local rt=$?
+    return ${rt}
 }
 
-cleanup_script() {
-    print_red "\nScript dihentikan. Membersihkan file sementara...\n"
-    rm -fr speedtest.tgz speedtest-cli benchmark_*
+_exit() {
+    _red "\nThe script has been terminated. Cleaning up files...\n"
+    rm -fr speedtest.tgz speedtest-cli benchtest_*
     exit 1
 }
 
-get_os_info() {
+get_opsy() {
     [ -f /etc/redhat-release ] && awk '{print $0}' /etc/redhat-release && return
     [ -f /etc/os-release ] && awk -F'[= "]' '/PRETTY_NAME/{print $3,$4,$5}' /etc/os-release && return
     [ -f /etc/lsb-release ] && awk -F'[="]+' '/DESCRIPTION/{print $2}' /etc/lsb-release && return
 }
 
-draw_line() {
+next() {
     printf "%-70s\n" "-" | sed 's/\s/-/g'
 }
 
-run_speedtest() {
-    local test_server="$2"
-    if [ -z "$1" ]; then
+speed_test() {
+    local nodeName="$2"
+    if [ -z "$1" ];then
         ./speedtest-cli/speedtest --progress=no --accept-license --accept-gdpr >./speedtest-cli/speedtest.log 2>&1
     else
         ./speedtest-cli/speedtest --progress=no --server-id="$1" --accept-license --accept-gdpr >./speedtest-cli/speedtest.log 2>&1
     fi
+
     if [ $? -eq 0 ]; then
-        local download_rate upload_rate ping
-        download_rate=$(awk '/Download/{print $3" "$4}' ./speedtest-cli/speedtest.log)
-        upload_rate=$(awk '/Upload/{print $3" "$4}' ./speedtest-cli/speedtest.log)
-        ping=$(awk '/Latency/{print $3" "$4}' ./speedtest-cli/speedtest.log)
-        if [[ -n "${download_rate}" && -n "${upload_rate}" && -n "${ping}" ]]; then
-            printf "\033[0;33m%-18s\033[0;32m%-18s\033[0;31m%-20s\033[0;36m%-12s\033[0m\n" " ${test_server}" "${upload_rate}" "${download_rate}" "${ping}"
+        local dl_speed up_speed latency
+        dl_speed=$(awk '/Download/{print $3" "$4}' ./speedtest-cli/speedtest.log)
+        up_speed=$(awk '/Upload/{print $3" "$4}' ./speedtest-cli/speedtest.log)
+        latency=$(awk '/Latency/{print $3" "$4}' ./speedtest-cli/speedtest.log)
+        if [[ -n "${dl_speed}" && -n "${up_speed}" && -n "${latency}" ]]; then
+            printf "\033[0;33m%-18s\033[0;32m%-18s\033[0;31m%-20s\033[0;36m%-12s\033[0m\n" " ${nodeName}" "${up_speed}" "${dl_speed}" "${latency}"
         fi
     fi
 }
 
-test_speed() {
-    run_speedtest '' 'Speedtest.net'
-    run_speedtest '21541' 'Los Angeles, US'
-    run_speedtest '43860' 'Dallas, US'
-    run_speedtest '40879' 'Montreal, CA'
-    run_speedtest '24215' 'Paris, FR'
-    run_speedtest '28922' 'Amsterdam, NL'
-    run_speedtest '24447' 'Shanghai, CN'
-    run_speedtest '5530' 'Chongqing, CN'
-    run_speedtest '60572' 'Guangzhou, CN'
-    run_speedtest '32155' 'Hongkong, CN'
-    run_speedtest '23647' 'Mumbai, IN'
-    run_speedtest '13623' 'Singapore, SG'
-    run_speedtest '21569' 'Tokyo, JP'
+speed() {
+    speed_test '' 'Speedtest.net'
+    speed_test '21541' 'Los Angeles, US'
+    speed_test '43860' 'Dallas, US'
+    speed_test '40879' 'Montreal, CA'
+    speed_test '24215' 'Paris, FR'
+    speed_test '28922' 'Amsterdam, NL'
+    speed_test '24447' 'Shanghai, CN'
+    speed_test '5530' 'Chongqing, CN'
+    speed_test '60572' 'Guangzhou, CN'
+    speed_test '32155' 'Hongkong, CN'
+    speed_test '23647' 'Mumbai, IN'
+    speed_test '13623' 'Singapore, SG'
+    speed_test '21569' 'Tokyo, JP'
 }
 
-disk_io_test() {
-    (LANG=C dd if=/dev/zero of=benchmark_$$ bs=512k count="$1" conv=fdatasync && rm -f benchmark_$$) 2>&1 | awk -F '[,，]' '{io=$NF} END { print io}' | sed 's/^[ \t]*//;s/[ \t]*$//'
+io_test() {
+    (LANG=C dd if=/dev/zero of=benchtest_$$ bs=512k count="$1" conv=fdatasync && rm -f benchtest_$$) 2>&1 | awk -F '[,，]' '{io=$NF} END { print io}' | sed 's/^[ \t]*//;s/[ \t]*$//'
 }
 
-calculate_size() {
-    local raw_value=$1
-    local result=0
-    local factor=1
+calc_size() {
+    local raw=$1
+    local total_size=0
+    local num=1
     local unit="KB"
-    if ! [[ ${raw_value} =~ ^[0-9]+$ ]]; then
+
+    if ! [[ ${raw} =~ ^[0-9]+$ ]]; then
         echo ""
         return
     fi
-    if [ "${raw_value}" -ge 1073741824 ]; then
-        factor=1073741824
+
+    if [ "${raw}" -ge 1073741824 ]; then
+        num=1073741824
         unit="TB"
-    elif [ "${raw_value}" -ge 1048576 ]; then
-        factor=1048576
+    elif [ "${raw}" -ge 1048576 ]; then
+        num=1048576
         unit="GB"
-    elif [ "${raw_value}" -ge 1024 ]; then
-        factor=1024
+    elif [ "${raw}" -ge 1024 ]; then
+        num=1024
         unit="MB"
-    elif [ "${raw_value}" -eq 0 ]; then
-        echo "${result}"
+    elif [ "${raw}" -eq 0 ]; then
+        echo "${total_size}"
         return
     fi
-    result=$(awk 'BEGIN{printf "%.1f", '"$raw_value"' / '$factor'}')
-    echo "${result} ${unit}"
+
+    total_size=$(awk 'BEGIN{printf "%.1f", '"$raw"' / '$num'}')
+    echo "${total_size} ${unit}"
 }
 
-convert_to_kb() {
-    local byte_value=$1
-    awk 'BEGIN{printf "%.0f", '"$byte_value"' / 1024}'
+to_kibyte() {
+    local raw=$1
+    awk 'BEGIN{printf "%.0f", '"$raw"' / 1024}'
 }
 
-sum_values() {
-    local values=("$@")
-    local total
-    total=0
-    for value in "${values[@]}"; do
-        total=$((total + value))
+calc_sum() {
+    local arr=("$@")
+    local s
+    s=0
+
+    for i in "${arr[@]}"; do
+        s=$((s + i))
     done
-    echo ${total}
+
+    echo ${s}
 }
 
-detect_virtualization() {
-    check_command "dmesg" && virt_log="$(dmesg 2>/dev/null)"
-    if check_command "dmidecode"; then
-        system_maker="$(dmidecode -s system-manufacturer 2>/dev/null)"
-        system_product="$(dmidecode -s system-product-name 2>/dev/null)"
-        system_version="$(dmidecode -s system-version 2>/dev/null)"
+check_virt() {
+    _exists "dmesg" && virtualx="$(dmesg 2>/dev/null)"
+
+    if _exists "dmidecode"; then
+        sys_manu="$(dmidecode -s system-manufacturer 2>/dev/null)"
+        sys_product="$(dmidecode -s system-product-name 2>/dev/null)"
+        sys_ver="$(dmidecode -s system-version 2>/dev/null)"
     else
-        system_maker=""
-        system_product=""
-        system_version=""
+        sys_manu=""
+        sys_product=""
+        sys_ver=""
     fi
+
     if grep -qa docker /proc/1/cgroup; then
-        virt_type="Docker"
+        virt="Docker"
     elif grep -qa lxc /proc/1/cgroup; then
-        virt_type="LXC"
+        virt="LXC"
     elif grep -qa container=lxc /proc/1/environ; then
-        virt_type="LXC"
+        virt="LXC"
     elif [[ -f /proc/user_beancounters ]]; then
-        virt_type="OpenVZ"
-    elif [[ "${virt_log}" == *kvm-clock* ]]; then
-        virt_type="KVM"
-    elif [[ "${system_product}" == *KVM* ]]; then
-        virt_type="KVM"
-    elif [[ "${system_maker}" == *QEMU* ]]; then
-        virt_type="KVM"
-    elif [[ "${virt_log}" == *"VMware Virtual Platform"* ]]; then
-        virt_type="VMware"
-    elif [[ "${system_product}" == *"VMware Virtual Platform"* ]]; then
-        virt_type="VMware"
-    elif [[ "${virt_log}" == *"Parallels Software International"* ]]; then
-        virt_type="Parallels"
-    elif [[ "${virt_log}" == *VirtualBox* ]]; then
-        virt_type="VirtualBox"
+        virt="OpenVZ"
+    elif [[ "${virtualx}" == *kvm-clock* ]]; then
+        virt="KVM"
+    elif [[ "${sys_product}" == *KVM* ]]; then
+        virt="KVM"
+    elif [[ "${sys_manu}" == *QEMU* ]]; then
+        virt="KVM"
+    elif [[ "${cname}" == *KVM* ]]; then
+        virt="KVM"
+    elif [[ "${cname}" == *QEMU* ]]; then
+        virt="KVM"
+    elif [[ "${virtualx}" == *"VMware Virtual Platform"* ]]; then
+        virt="VMware"
+    elif [[ "${sys_product}" == *"VMware Virtual Platform"* ]]; then
+        virt="VMware"
+    elif [[ "${virtualx}" == *"Parallels Software International"* ]]; then
+        virt="Parallels"
+    elif [[ "${virtualx}" == *VirtualBox* ]]; then
+        virt="VirtualBox"
     elif [[ -e /proc/xen ]]; then
         if grep -q "control_d" "/proc/xen/capabilities" 2>/dev/null; then
-            virt_type="Xen-Dom0"
+            virt="Xen-Dom0"
         else
-            virt_type="Xen-DomU"
+            virt="Xen-DomU"
         fi
     elif [ -f "/sys/hypervisor/type" ] && grep -q "xen" "/sys/hypervisor/type"; then
-        virt_type="Xen"
-    elif [[ "${system_maker}" == *"Microsoft Corporation"* ]]; then
-        if [[ "${system_product}" == *"Virtual Machine"* ]]; then
-            if [[ "${system_version}" == *"7.0"* || "${system_version}" == *"Hyper-V"* ]]; then
-                virt_type="Hyper-V"
+        virt="Xen"
+    elif [[ "${sys_manu}" == *"Microsoft Corporation"* ]]; then
+        if [[ "${sys_product}" == *"Virtual Machine"* ]]; then
+            if [[ "${sys_ver}" == *"7.0"* || "${sys_ver}" == *"Hyper-V" ]]; then
+                virt="Hyper-V"
             else
-                virt_type="Microsoft Virtual Machine"
+                virt="Microsoft Virtual Machine"
             fi
         fi
     else
-        virt_type="Dedicated"
+        virt="Dedicated"
     fi
 }
 
-get_ipv4_info() {
-    local isp city_name country_name region_name
-    isp="$(wget -q -T10 -O- ipinfo.io/org)"
-    city_name="$(wget -q -T10 -O- ipinfo.io/city)"
-    country_name="$(wget -q -T10 -O- ipinfo.io/country)"
-    region_name="$(wget -q -T10 -O- ipinfo.io/region)"
-    if [[ -n "${isp}" ]]; then
-        echo " ISP                : $(print_cyan "${isp}")"
+ipv4_info() {
+    local org city country region
+    org="$(wget -q -T10 -O- ipinfo.io/org)"
+    city="$(wget -q -T10 -O- ipinfo.io/city)"
+    country="$(wget -q -T10 -O- ipinfo.io/country)"
+    region="$(wget -q -T10 -O- ipinfo.io/region)"
+
+    if [[ -n "${org}" ]]; then
+        echo " Organization       : $(_blue "${org}")"
     fi
-    if [[ -n "${city_name}" && -n "${country_name}" ]]; then
-        echo " Lokasi             : $(print_cyan "${city_name}, ${region_name}, ${country_name}")"
+
+    if [[ -n "${city}" && -n "${country}" ]]; then
+        echo " Location           : $(_blue "${city} / ${country}")"
     fi
-    local current_ip
-    current_ip="$(wget -q -T10 -O- ipinfo.io/ip)"
-    if [[ -n "${current_ip}" ]]; then
-        echo " Alamat IPv4 Publik : $(print_cyan "${current_ip}")"
+
+    if [[ -n "${region}" ]]; then
+        echo " Region             : $(_yellow "${region}")"
+    fi
+
+    if [[ -z "${org}" ]]; then
+        echo " Region             : $(_red "No ISP detected")"
     fi
 }
 
-get_ipv6_info() {
-    local isp city_name country_name region_name
-    isp="$(wget -q -T10 -O- ipinfo.io/org?token=${token}&lang=en)"
-    city_name="$(wget -q -T10 -O- ipinfo.io/city)"
-    country_name="$(wget -q -T10 -O- ipinfo.io/country)"
-    region_name="$(wget -q -T10 -O- ipinfo.io/region)"
-    if [[ -n "${isp}" ]]; then
-        echo " ISP                : $(print_cyan "${isp}")"
+install_speedtest() {
+    if [ ! -e "./speedtest-cli/speedtest" ]; then
+        sys_bit=""
+        local sysarch
+        sysarch="$(uname -m)"
+
+        if [ "${sysarch}" = "unknown" ] || [ "${sysarch}" = "" ]; then
+            sysarch="$(arch)"
+        fi
+
+        if [ "${sysarch}" = "x86_64" ]; then
+            sys_bit="x86_64"
+        fi
+
+        if [ "${sysarch}" = "i386" ] || [ "${sysarch}" = "i686" ]; then
+            sys_bit="i386"
+        fi
+
+        if [ "${sysarch}" = "armv8" ] || [ "${sysarch}" = "armv8l" ] || [ "${sysarch}" = "aarch64" ] || [ "${sysarch}" = "arm64" ]; then
+            sys_bit="aarch64"
+        fi
+
+        if [ "${sysarch}" = "armv7" ] || [ "${sysarch}" = "armv7l" ]; then
+            sys_bit="armhf"
+        fi
+
+        if [ "${sysarch}" = "armv6" ]; then
+            sys_bit="armel"
+        fi
+
+        [ -z "${sys_bit}" ] && _red "Error: Unsupported system architecture (${sysarch}).\n" && exit 1
+        url1="https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-${sys_bit}.tgz"
+        url2="https://dl.lamp.sh/files/ookla-speedtest-1.2.0-linux-${sys_bit}.tgz"
+
+        if ! wget --no-check-certificate -q -T10 -O speedtest.tgz ${url1}; then
+            if ! wget --no-check-certificate -q -T10 -O speedtest.tgz ${url2}; then
+                _red "Error: Failed to download speedtest-cli.\n" && exit 1
+            fi
+        fi
+
+        mkdir -p speedtest-cli && tar zxf speedtest.tgz -C ./speedtest-cli && chmod +x ./speedtest-cli/speedtest
+        rm -f speedtest.tgz
     fi
-    if [[ -n "${city_name}" && -n "${country_name}" ]]; then
-        echo " Lokasi             : $(print_cyan "${city_name}, ${region_name}, ${country_name}")"
+
+    printf "%-18s%-18s%-20s%-12s\n" " Node Name" "Upload Speed" "Download Speed" "Latency"
+}
+
+print_intro() {
+    echo "---------------- benchmark.sh Script by Syauqqii ----------------"
+    echo " Version            : $(print_green "v2024-09-07")"
+    echo " Usage              : $(_red "./benchmark.sh")"
+}
+
+get_system_info() {
+    cname=$(awk -F: '/model name/ {name=$2} END {print name}' /proc/cpuinfo | sed 's/^[ \t]*//;s/[ \t]*$//')
+    cores=$(awk -F: '/^processor/ {core++} END {print core}' /proc/cpuinfo)
+    freq=$(awk -F'[ :]' '/cpu MHz/ {print $4;exit}' /proc/cpuinfo)
+    ccache=$(awk -F: '/cache size/ {cache=$2} END {print cache}' /proc/cpuinfo | sed 's/^[ \t]*//;s/[ \t]*$//')
+    cpu_aes=$(grep -i 'aes' /proc/cpuinfo)
+    cpu_virt=$(grep -Ei 'vmx|svm' /proc/cpuinfo)
+    tram=$(
+        LANG=C
+        free | awk '/Mem/ {print $2}'
+    )
+    tram=$(calc_size "$tram")
+    uram=$(
+        LANG=C
+        free | awk '/Mem/ {print $3}'
+    )
+    uram=$(calc_size "$uram")
+    swap=$(
+        LANG=C
+        free | awk '/Swap/ {print $2}'
+    )
+    swap=$(calc_size "$swap")
+    uswap=$(
+        LANG=C
+        free | awk '/Swap/ {print $3}'
+    )
+    uswap=$(calc_size "$uswap")
+    up=$(awk '{a=$1/86400;b=($1%86400)/3600;c=($1%3600)/60} {printf("%d days, %d hour %d min\n",a,b,c)}' /proc/uptime)
+    if _exists "w"; then
+        load=$(
+            LANG=C
+            w | head -1 | awk -F'load average:' '{print $2}' | sed 's/^[ \t]*//;s/[ \t]*$//'
+        )
+    elif _exists "uptime"; then
+        load=$(
+            LANG=C
+            uptime | head -1 | awk -F'load average:' '{print $2}' | sed 's/^[ \t]*//;s/[ \t]*$//'
+        )
     fi
-    local current_ip
-    current_ip="$(wget -q -T10 -O- ipinfo.io/ip)"
-    if [[ -n "${current_ip}" ]]; then
-        echo " Alamat IPv6 Publik : $(print_cyan "${current_ip}")"
+
+    opsy=$(get_opsy)
+    arch=$(uname -m)
+    if _exists "getconf"; then
+        lbit=$(getconf LONG_BIT)
+    else
+        echo "${arch}" | grep -q "64" && lbit="64" || lbit="32"
+    fi
+
+    kern=$(uname -r)
+    in_kernel_no_swap_total_size=$(
+        LANG=C
+        df -t simfs -t ext2 -t ext3 -t ext4 -t btrfs -t xfs -t vfat -t ntfs --total 2>/dev/null | grep total | awk '{ print $2 }'
+    )
+    swap_total_size=$(free -k | grep Swap | awk '{print $2}')
+    zfs_total_size=$(to_kibyte "$(calc_sum "$(zpool list -o size -Hp 2> /dev/null)")")
+    disk_total_size=$(calc_size $((swap_total_size + in_kernel_no_swap_total_size + zfs_total_size)))
+    in_kernel_no_swap_used_size=$(
+        LANG=C
+        df -t simfs -t ext2 -t ext3 -t ext4 -t btrfs -t xfs -t vfat -t ntfs --total 2>/dev/null | grep total | awk '{ print $3 }'
+    )
+    swap_used_size=$(free -k | grep Swap | awk '{print $3}')
+    zfs_used_size=$(to_kibyte "$(calc_sum "$(zpool list -o allocated -Hp 2> /dev/null)")")
+    disk_used_size=$(calc_size $((swap_used_size + in_kernel_no_swap_used_size + zfs_used_size)))
+    tcpctrl=$(sysctl net.ipv4.tcp_congestion_control | awk -F ' ' '{print $3}')
+}
+
+print_system_info() {
+    if [ -n "$cname" ]; then
+        echo " CPU Model          : $(_blue "$cname")"
+    else
+        echo " CPU Model          : $(_blue "CPU model not detected")"
+    fi
+
+    if [ -n "$freq" ]; then
+        echo " CPU Cores          : $(_blue "$cores @ $freq MHz")"
+    else
+        echo " CPU Cores          : $(_blue "$cores")"
+    fi
+
+    if [ -n "$ccache" ]; then
+        echo " CPU Cache          : $(_blue "$ccache")"
+    fi
+
+    if [ -n "$cpu_aes" ]; then
+        echo " AES-NI             : $(_green "\xe2\x9c\x93 Enabled")"
+    else
+        echo " AES-NI             : $(_red "\xe2\x9c\x97 Disabled")"
+    fi
+
+    if [ -n "$cpu_virt" ]; then
+        echo " VM-x/AMD-V         : $(_green "\xe2\x9c\x93 Enabled")"
+    else
+        echo " VM-x/AMD-V         : $(_red "\xe2\x9c\x97 Disabled")"
+    fi
+
+    echo " Total Disk         : $(_yellow "$disk_total_size") $(_blue "($disk_used_size Used)")"
+    echo " Total Mem          : $(_yellow "$tram") $(_blue "($uram Used)")"
+    if [ "$swap" != "0" ]; then
+        echo " Total Swap         : $(_blue "$swap ($uswap Used)")"
+    fi
+
+    echo " System uptime      : $(_blue "$up")"
+    echo " Load average       : $(_blue "$load")"
+    echo " OS                 : $(_blue "$opsy")"
+    echo " Arch               : $(_blue "$arch ($lbit Bit)")"
+    echo " Kernel             : $(_blue "$kern")"
+    echo " TCP CC             : $(_yellow "$tcpctrl")"
+    echo " Virtualization     : $(_blue "$virt")"
+    echo " IPv4/IPv6          : $online"
+}
+
+print_io_test() {
+    freespace=$(df -m . | awk 'NR==2 {print $4}')
+
+    if [ -z "${freespace}" ]; then
+        freespace=$(df -m . | awk 'NR==3 {print $3}')
+    fi
+
+    if [ "${freespace}" -gt 1024 ]; then
+        writemb=2048
+        io1=$(io_test ${writemb})
+        echo " I/O Speed(1st run) : $(_yellow "$io1")"
+        io2=$(io_test ${writemb})
+        echo " I/O Speed(2nd run) : $(_yellow "$io2")"
+        io3=$(io_test ${writemb})
+        echo " I/O Speed(3rd run) : $(_yellow "$io3")"
+        ioraw1=$(echo "$io1" | awk 'NR==1 {print $1}')
+        [[ "$(echo "$io1" | awk 'NR==1 {print $2}')" == "GB/s" ]] && ioraw1=$(awk 'BEGIN{print '"$ioraw1"' * 1024}')
+        ioraw2=$(echo "$io2" | awk 'NR==1 {print $1}')
+        [[ "$(echo "$io2" | awk 'NR==1 {print $2}')" == "GB/s" ]] && ioraw2=$(awk 'BEGIN{print '"$ioraw2"' * 1024}')
+        ioraw3=$(echo "$io3" | awk 'NR==1 {print $1}')
+        [[ "$(echo "$io3" | awk 'NR==1 {print $2}')" == "GB/s" ]] && ioraw3=$(awk 'BEGIN{print '"$ioraw3"' * 1024}')
+        ioall=$(awk 'BEGIN{print '"$ioraw1"' + '"$ioraw2"' + '"$ioraw3"'}')
+        ioavg=$(awk 'BEGIN{printf "%.1f", '"$ioall"' / 3}')
+        echo " I/O Speed(average) : $(_yellow "$ioavg MB/s")"
+    else
+        echo " $(_red "Not enough space for I/O Speed test!")"
     fi
 }
 
-test_speed
-disk_io_test
+print_end_time() {
+    end_time=$(date +%s)
+    time=$((end_time - start_time))
+
+    if [ ${time} -gt 60 ]; then
+        min=$((time / 60))
+        sec=$((time % 60))
+        echo " Finished in        : ${min} min ${sec} sec"
+    else
+        echo " Finished in        : ${time} sec"
+    fi
+
+    date_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
+    echo " Timestamp          : $date_time"
+}
+
+! _exists "wget" && _red "Error: wget command not found.\n" && exit 1
+! _exists "free" && _red "Error: free command not found.\n" && exit 1
+
+_exists "curl" && local_curl=true
+
+[[ -n ${local_curl} ]] && ip_check_cmd="curl -s -m 4" || ip_check_cmd="wget -qO- -T 4"
+ipv4_check=$( (ping -4 -c 1 -W 4 ipv4.google.com >/dev/null 2>&1 && echo true) || ${ip_check_cmd} -4 icanhazip.com 2> /dev/null)
+ipv6_check=$( (ping -6 -c 1 -W 4 ipv6.google.com >/dev/null 2>&1 && echo true) || ${ip_check_cmd} -6 icanhazip.com 2> /dev/null)
+
+if [[ -z "$ipv4_check" && -z "$ipv6_check" ]]; then
+    _yellow "Warning: Both IPv4 and IPv6 connectivity were not detected.\n"
+fi
+
+[[ -z "$ipv4_check" ]] && online="$(_red "\xe2\x9c\x97 Offline")" || online="$(_green "\xe2\x9c\x93 Online")"
+[[ -z "$ipv6_check" ]] && online+=" / $(_red "\xe2\x9c\x97 Offline")" || online+=" / $(_green "\xe2\x9c\x93 Online")"
+start_time=$(date +%s)
+
+get_system_info
+check_virt
+clear
+print_intro
+next
+print_system_info
+ipv4_info
+next
+print_io_test
+next
+install_speedtest && speed && rm -fr speedtest-cli
+next
+print_end_time
+next
