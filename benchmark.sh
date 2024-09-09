@@ -252,12 +252,6 @@ install_speedtest() {
     printf "%-18s%-18s%-20s%-12s\n" " Node Name" "Upload Speed" "Download Speed" "Latency"
 }
 
-print_intro() {
-    echo "---------------- benchmark.sh Script by Syauqqii ----------------"
-    echo " Version            : $(_green "v2024-09-07")"
-    echo " Usage              : $(_red "./benchmark.sh")"
-}
-
 get_system_info() {
     cname=$(awk -F: '/model name/ {name=$2} END {print name}' /proc/cpuinfo | sed 's/^[ \t]*//;s/[ \t]*$//')
     cores=$(awk -F: '/^processor/ {core++} END {print core}' /proc/cpuinfo)
@@ -434,14 +428,13 @@ start_time=$(date +%s)
 get_system_info
 check_virt
 clear
-print_intro
 next
 print_system_info
 ipv4_info
 next
 print_io_test
 next
-install_speedtest && speed && rm -fr speedtest-cli
+install_speedtest && speed && rm -rf speedtest-cli
 next
 print_end_time
 next
