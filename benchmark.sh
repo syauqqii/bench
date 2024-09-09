@@ -254,7 +254,7 @@ install_speedtest() {
 
 print_intro() {
     echo "---------------- benchmark.sh Script by Syauqqii ----------------"
-    echo " Version            : $(print_green "v2024-09-07")"
+    echo " Version            : $(_green "v2024-09-07")"
     echo " Usage              : $(_red "./benchmark.sh")"
 }
 
